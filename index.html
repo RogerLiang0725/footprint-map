@@ -1,0 +1,448 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>足迹地图 · 精准边界版</title>
+<style>
+  :root{
+    --ink:#05080f; --panel:#0c121d; --line:#1c2637;
+    --land:#33506f; --land-hi:#4d7099; --border:#0c121d;
+    --mark:#ff7a1a; --mark-hi:#ffa860; --sea:#080d16;
+    --text:#dbe6f4; --muted:#6b7d95;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  body.light{
+    --ink:#f2f5f9; --panel:#fff; --line:#dde5ee; --sea:#eaf1f8;
+    --land:#c2d6e9; --land-hi:#9dbcda; --border:#ffffff; --text:#16202e; --muted:#7a8ba0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--text);
+    font-family:ui-sans-serif,-apple-system,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1400px;margin:0 auto;padding:22px 20px 60px}
+
+  header{display:flex;align-items:flex-end;gap:22px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:16px}
+  h1{font-size:15px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;margin:0}
+  h1 span{color:var(--mark)}
+  .stats{margin-left:auto;display:flex;gap:26px;align-items:flex-end}
+  .stat b{display:block;font-family:var(--mono);font-size:32px;line-height:1;letter-spacing:-.02em;font-weight:400}
+  .stat i{font-style:normal;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  input,button,textarea,select{font:inherit;color:var(--text);background:var(--panel);
+    border:1px solid var(--line);border-radius:7px;padding:8px 11px;outline:none}
+  input:focus,textarea:focus,button:focus-visible{border-color:var(--mark)}
+  button{cursor:pointer}
+  button:hover{border-color:var(--land-hi)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:transparent}
+  .seg button.on{background:var(--mark);color:#100a04}
+  .search{position:relative;flex:1;min-width:190px;max-width:300px}
+  .search input{width:100%}
+  .sugg{position:absolute;z-index:9;top:105%;left:0;right:0;background:var(--panel);
+    border:1px solid var(--line);border-radius:7px;overflow:hidden;max-height:250px;overflow-y:auto}
+  .sugg div{padding:7px 11px;cursor:pointer;font-size:14px}
+  .sugg div:hover,.sugg div.sel{background:var(--mark);color:#100a04}
+
+  .stage{border:1px solid var(--line);border-radius:12px;background:var(--sea);
+    position:relative;overflow:hidden;touch-action:none}
+  svg{display:block;width:100%;height:auto;cursor:grab}
+  svg.drag{cursor:grabbing}
+  path{stroke:var(--border);stroke-width:.6;vector-effect:non-scaling-stroke;fill-rule:evenodd}
+  #countries path{fill:var(--land);transition:fill .16s}
+  #countries path.on{fill:var(--mark)}
+  body:not(.prov) #countries path:hover{fill:var(--land-hi)}
+  body:not(.prov) #countries path.on:hover{fill:var(--mark-hi)}
+  body.prov #countries path{opacity:.45;pointer-events:none}
+  #provinces{display:none}
+  body.prov #provinces{display:block}
+  #provinces path{fill:var(--land);transition:fill .16s}
+  #provinces path.on{fill:var(--mark)}
+  #provinces path:hover{fill:var(--land-hi)}
+  #provinces path.on:hover{fill:var(--mark-hi)}
+
+  .tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--text);
+    border:1px solid var(--line);border-radius:6px;padding:4px 9px;font-size:13px;
+    transform:translate(-50%,-170%);opacity:0;transition:opacity .12s;white-space:nowrap}
+  .tip.show{opacity:1}
+  .zoomui{position:absolute;right:10px;bottom:10px;display:flex;gap:6px}
+  .zoomui button{padding:5px 10px;background:var(--panel);opacity:.9}
+  .loading{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--sea) 82%,transparent);font-size:14px;color:var(--muted)}
+  .loading.show{display:flex}
+
+  .cols{display:grid;grid-template-columns:1fr 320px;gap:18px;margin-top:16px}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px}
+  .card h2{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 10px;font-weight:600}
+  textarea{width:100%;height:92px;resize:vertical;font-family:var(--mono);font-size:12px}
+  .row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center}
+  .list{display:flex;flex-wrap:wrap;gap:6px;max-height:300px;overflow-y:auto}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:13px;cursor:pointer}
+  .chip:hover{border-color:var(--mark);color:var(--mark)}
+  .chip::after{content:" ×";color:var(--muted)}
+  .note{color:var(--muted);font-size:12.5px;line-height:1.65;margin:8px 0 0}
+  .empty{color:var(--muted);font-size:13px}
+  code{font-family:var(--mono);font-size:12px}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>足迹<span>·</span>精准边界</h1>
+    <div class="stats">
+      <div class="stat"><b id="nc">0</b><i>国家 / <span id="tc">0</span></i></div>
+      <div class="stat"><b id="np">0</b><i>省 · 州</i></div>
+      <div class="stat"><b id="pct">0</b><i>% 世界</i></div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <div class="seg">
+      <button id="mCountry" class="on">国家</button>
+      <button id="mProv">省 · 州</button>
+    </div>
+    <div class="search">
+      <input id="q" placeholder="搜索国家 / 省份，回车标记" autocomplete="off">
+      <div class="sugg" id="sugg" hidden></div>
+    </div>
+    <button id="theme">亮 / 暗</button>
+    <button id="share">复制分享链接</button>
+    <button id="export">导出</button>
+    <button id="import">导入</button>
+    <button id="png">PNG</button>
+    <button id="clear">清空</button>
+  </div>
+
+  <div class="stage" id="stage">
+    <div id="svgbox"></div>
+    <div class="tip" id="tip"></div>
+    <div class="loading" id="loading">正在载入省级边界…</div>
+    <div class="zoomui">
+      <button id="zin">+</button><button id="zout">−</button><button id="zreset">复位</button>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h2>从照片坐标批量标记</h2>
+      <textarea id="coords" placeholder="每行一个坐标，纬度,经度&#10;34.6937,135.5023&#10;57.6889,11.9746"></textarea>
+      <div class="row">
+        <button id="runcoords">解析并标记</button>
+        <span class="note" id="coordmsg"></span>
+      </div>
+      <p class="note">坐标会同时点亮所在国家和省/州。判定是在浏览器里对真实边界做
+        point-in-polygon（<code>isPointInFill</code>），不联网、不调任何地图 API。<br>
+        取坐标：<code>python scripts/photos_to_coords.py &gt; coords.txt</code></p>
+    </div>
+    <div class="card">
+      <h2>已标记</h2>
+      <div class="list" id="list"><span class="empty">点地图上的国家即可标记</span></div>
+    </div>
+  </div>
+</div>
+
+<script src="data/world.js"></script>
+<script>
+// ---------- Equal Earth（与 build_vector.py 完全一致）----------
+const A1=1.340264, A2=-0.081106, A3=0.000893, A4=0.003796, SQ3=Math.sqrt(3);
+function equalEarth(lon, lat){
+  const lam = lon*Math.PI/180, phi = Math.max(-90,Math.min(90,lat))*Math.PI/180;
+  const th = Math.asin(SQ3/2*Math.sin(phi)), t2 = th*th;
+  const y  = th*(A1 + A2*t2 + A3*t2**3 + A4*t2**4);
+  const dy = A1 + 3*A2*t2 + 7*A3*t2**3 + 9*A4*t2**4;
+  return [2*SQ3*lam*Math.cos(th)/(3*dy), y];
+}
+const W = WORLD.w, H = WORLD.h;
+const SCALE = W/(2*equalEarth(180,0)[0]);
+const VB_Y = H/2 - equalEarth(0, 84)[1]*SCALE;          // 裁掉北冰洋空白
+const VB_H = (H/2 - equalEarth(0,-58)[1]*SCALE) - VB_Y;  // 和南极
+const project = (lat, lon) => {
+  const [x,y] = equalEarth(lon, lat);
+  return [W/2 + x*SCALE, H/2 - y*SCALE];
+};
+
+// ---------- 渲染 ----------
+const CO = WORLD.countries;
+const cIdx = new Map(CO.map((c,i)=>[c.iso,i]));
+document.getElementById('tc').textContent = CO.length;
+document.getElementById('svgbox').innerHTML =
+  `<svg viewBox="0 ${VB_Y} ${W} ${VB_H}" xmlns="http://www.w3.org/2000/svg">
+     <g id="cam">
+       <g id="countries">${CO.map((c,i)=>`<path d="${c.d}" data-i="${i}"/>`).join('')}</g>
+       <g id="provinces"></g>
+     </g>
+   </svg>`;
+const svg = document.querySelector('svg'), cam = document.getElementById('cam');
+const cPaths = [...document.querySelectorAll('#countries path')];
+
+const visited = new Set();      // 国家 iso
+const provs   = new Set();      // 省 id
+let PR = null, prIdx = null, pPaths = [], byIso = new Map();
+
+// ---------- 省级图层（按需加载）----------
+function loadAdmin1(){
+  if (PR) return Promise.resolve();
+  const box = document.getElementById('loading'); box.classList.add('show');
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'data/admin1.js';
+    s.onload = () => {
+      PR = ADMIN1.regions;
+      prIdx = new Map(PR.map((r,i)=>[r.id,i]));
+      document.getElementById('provinces').innerHTML =
+        PR.map((r,i)=>`<path d="${r.d}" data-i="${i}"/>`).join('');
+      pPaths = [...document.querySelectorAll('#provinces path')];
+      byIso = new Map();
+      pPaths.forEach((el,i) => {
+        const k = PR[i].iso;
+        if (!byIso.has(k)) byIso.set(k, []);
+        byIso.get(k).push(el);
+      });
+      provs.forEach(id => { const i = prIdx.get(id); if (i!=null) pPaths[i].classList.add('on'); });
+      box.classList.remove('show'); res();
+    };
+    s.onerror = () => { box.textContent = '省级数据没加载成功'; rej(); };
+    document.head.appendChild(s);
+  });
+}
+
+// ---------- 标记 ----------
+function setC(iso, on){
+  const i = cIdx.get(iso); if (i == null) return;
+  on ? visited.add(iso) : visited.delete(iso);
+  cPaths[i].classList.toggle('on', on);
+}
+function setP(id, on){
+  on ? provs.add(id) : provs.delete(id);
+  if (prIdx){ const i = prIdx.get(id); if (i!=null) pPaths[i].classList.toggle('on', on); }
+}
+function render(){
+  document.getElementById('nc').textContent = visited.size;
+  document.getElementById('np').textContent = provs.size;
+  document.getElementById('pct').textContent = (visited.size/CO.length*100).toFixed(1);
+  const list = document.getElementById('list');
+  const items = provMode && PR
+    ? [...provs].map(id => ({k:id, t:PR[prIdx.get(id)]?.zh || id, p:1}))
+    : [...visited].map(iso => ({k:iso, t:CO[cIdx.get(iso)].zh, p:0}));
+  list.innerHTML = items.length
+    ? items.sort((a,b)=>a.t.localeCompare(b.t,'zh'))
+        .map(o=>`<span class="chip" data-k="${o.k}" data-p="${o.p}">${o.t}</span>`).join('')
+    : `<span class="empty">点地图上的${provMode?'省/州':'国家'}即可标记</span>`;
+  save();
+}
+document.getElementById('list').addEventListener('click', e => {
+  const c = e.target.closest('.chip'); if (!c) return;
+  c.dataset.p === '1' ? setP(c.dataset.k, false) : setC(c.dataset.k, false);
+  render();
+});
+
+// ---------- 模式 ----------
+let provMode = false;
+const bC = document.getElementById('mCountry'), bP = document.getElementById('mProv');
+bC.onclick = () => { provMode = false; document.body.classList.remove('prov');
+  bC.classList.add('on'); bP.classList.remove('on'); render(); };
+bP.onclick = async () => { await loadAdmin1(); provMode = true; document.body.classList.add('prov');
+  bP.classList.add('on'); bC.classList.remove('on'); render(); };
+
+// ---------- 点击 / 悬停 ----------
+const tip = document.getElementById('tip'), stage = document.getElementById('stage');
+function meta(el){
+  if (!el) return null;
+  const i = +el.dataset.i;
+  return el.parentNode.id === 'provinces'
+    ? {zh: PR[i].zh, en: PR[i].en, key: PR[i].id, prov:true}
+    : {zh: CO[i].zh, en: CO[i].en, key: CO[i].iso, prov:false};
+}
+svg.addEventListener('click', e => {
+  if (moved) return;
+  const m = meta(e.target.closest('path')); if (!m) return;
+  m.prov ? setP(m.key, !provs.has(m.key)) : setC(m.key, !visited.has(m.key));
+  render();
+});
+svg.addEventListener('mousemove', e => {
+  const m = meta(e.target.closest('path'));
+  if (!m){ tip.classList.remove('show'); return; }
+  tip.textContent = m.zh + ' · ' + m.en;
+  const b = stage.getBoundingClientRect();
+  tip.style.left = (e.clientX-b.left)+'px'; tip.style.top = (e.clientY-b.top)+'px';
+  tip.classList.add('show');
+});
+svg.addEventListener('mouseleave', ()=>tip.classList.remove('show'));
+
+// ---------- 缩放 / 拖动 ----------
+let z = 1, tx = 0, ty = 0, moved = false;
+const apply = () => cam.setAttribute('transform', `translate(${tx} ${ty}) scale(${z})`);
+function zoomAt(f, cx, cy){
+  const nz = Math.max(1, Math.min(24, z*f));
+  const k = nz/z; tx = cx - k*(cx-tx); ty = cy - k*(cy-ty); z = nz;
+  if (z === 1){ tx = ty = 0; }
+  apply();
+}
+const toUser = e => {
+  const b = svg.getBoundingClientRect();
+  return [(e.clientX-b.left)/b.width*W, VB_Y + (e.clientY-b.top)/b.height*VB_H];
+};
+stage.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [x,y] = toUser(e);
+  zoomAt(Math.exp(-e.deltaY*0.0016), x, y);
+}, {passive:false});
+let down = null;
+svg.addEventListener('pointerdown', e => {
+  down = {x:e.clientX, y:e.clientY, tx, ty}; moved = false;
+  svg.setPointerCapture(e.pointerId); svg.classList.add('drag');
+});
+svg.addEventListener('pointermove', e => {
+  if (!down) return;
+  const b = svg.getBoundingClientRect(), s = W/b.width;
+  const dx = (e.clientX-down.x)*s, dy = (e.clientY-down.y)*s;
+  if (Math.abs(dx)+Math.abs(dy) > 4) moved = true;
+  tx = down.tx + dx; ty = down.ty + dy; apply();
+});
+svg.addEventListener('pointerup', e => { down = null; svg.classList.remove('drag');
+  setTimeout(()=>moved=false, 0); });
+document.getElementById('zin').onclick  = () => zoomAt(1.6, W/2, H/2);
+document.getElementById('zout').onclick = () => zoomAt(1/1.6, W/2, H/2);
+document.getElementById('zreset').onclick = () => { z=1; tx=ty=0; apply(); };
+
+// ---------- 坐标 -> 国家 / 省 ----------
+function hitTest(paths, px, py){
+  const p = svg.createSVGPoint(); p.x = px; p.y = py;
+  for (const el of paths) if (el.isPointInFill(p)) return el;
+  // 海岸线附近容差 ~15km
+  for (const d of [2, 5, 9]) for (const [ax,ay] of [[d,0],[-d,0],[0,d],[0,-d],[d,d],[-d,-d],[d,-d],[-d,d]]){
+    p.x = px+ax; p.y = py+ay;
+    for (const el of paths) if (el.isPointInFill(p)) return el;
+  }
+  return null;
+}
+document.getElementById('runcoords').addEventListener('click', async () => {
+  const msg = document.getElementById('coordmsg');
+  if (!PR) { msg.textContent = '载入省级边界…'; await loadAdmin1().catch(()=>{}); }
+  const lines = document.getElementById('coords').value.split('\n');
+  let nc = 0, np = 0, miss = 0;
+  for (const line of lines){
+    const m = line.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
+    if (!m) continue;
+    const [px,py] = project(parseFloat(m[1]), parseFloat(m[2]));
+    const ce = hitTest(cPaths, px, py);
+    if (!ce){ miss++; continue; }
+    const iso = CO[+ce.dataset.i].iso;
+    if (!visited.has(iso)) nc++;
+    setC(iso, true);
+    if (pPaths.length){
+      const pe = hitTest(byIso.get(iso) || pPaths, px, py);
+      if (pe){ const id = PR[+pe.dataset.i].id; if (!provs.has(id)) np++; setP(id, true); }
+    }
+  }
+  render();
+  msg.textContent = `新点亮 ${nc} 个国家、${np} 个省/州${miss?`，${miss} 个坐标落在海上`:''}`;
+});
+
+// ---------- 搜索 ----------
+const q = document.getElementById('q'), sugg = document.getElementById('sugg');
+let hits = [], sel = 0;
+q.addEventListener('input', () => {
+  const v = q.value.trim().toLowerCase();
+  if (!v){ sugg.hidden = true; return; }
+  hits = CO.filter(c => c.zh.includes(v) || c.en.toLowerCase().includes(v) || c.iso.toLowerCase()===v)
+           .map(c => ({t:c.zh, s:c.en, k:c.iso, p:0}));
+  if (PR) hits = hits.concat(PR.filter(r => r.zh.includes(v) || (r.en||'').toLowerCase().includes(v))
+           .map(r => ({t:r.zh, s:r.en, k:r.id, p:1})));
+  hits = hits.slice(0,8); sel = 0;
+  sugg.innerHTML = hits.map((h,j)=>`<div data-k="${h.k}" data-p="${h.p}" class="${j?'':'sel'}">${h.t} <span style="color:var(--muted)">${h.s||''}</span></div>`).join('');
+  sugg.hidden = !hits.length;
+});
+function pick(h){ h.p ? setP(h.k, true) : setC(h.k, true); render(); q.value=''; sugg.hidden = true; }
+q.addEventListener('keydown', e => {
+  if (sugg.hidden) return;
+  if (e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault();
+    sel = (sel + (e.key==='ArrowDown'?1:hits.length-1)) % hits.length;
+    [...sugg.children].forEach((d,j)=>d.classList.toggle('sel', j===sel));
+  } else if (e.key==='Enter' && hits[sel]) pick(hits[sel]);
+});
+sugg.addEventListener('click', e => {
+  const d = e.target.closest('div[data-k]');
+  if (d) pick({k:d.dataset.k, p:+d.dataset.p});
+});
+
+// ---------- 保存 / 分享 / 导入导出 ----------
+const state = () => ({c:[...visited], p:[...provs]});
+const store = {
+  async get(){ try { const r = await window.storage.get('trips'); return r?r.value:null; } catch(e){}
+               try { return localStorage.getItem('trips'); } catch(e){ return null; } },
+  async set(v){ try { await window.storage.set('trips', v); return; } catch(e){}
+                try { localStorage.setItem('trips', v); } catch(e){} }
+};
+function save(){ store.set(JSON.stringify(state())); }
+async function applyState(s){
+  [...visited].forEach(i=>setC(i,false)); [...provs].forEach(i=>setP(i,false));
+  (s.c||[]).forEach(i=>setC(i,true));
+  if ((s.p||[]).length){ await loadAdmin1().catch(()=>{}); (s.p||[]).forEach(i=>setP(i,true)); }
+}
+document.getElementById('share').onclick = async () => {
+  const s = state();
+  const url = location.origin + location.pathname + '#c=' + s.c.join(',') + (s.p.length?'&p='+s.p.join(','):'');
+  const b = document.getElementById('share');
+  try { await navigator.clipboard.writeText(url); b.textContent='已复制 ✓'; setTimeout(()=>b.textContent='复制分享链接',1600); }
+  catch(e){ prompt('复制这个链接：', url); }
+};
+document.getElementById('export').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(state(),null,1)],{type:'application/json'}));
+  a.download = 'trips.json'; a.click();
+};
+document.getElementById('import').onclick = () => {
+  const inp = document.createElement('input'); inp.type='file'; inp.accept='.json';
+  inp.onchange = () => { const f=inp.files[0]; if(!f) return;
+    const rd = new FileReader();
+    rd.onload = async () => { try { await applyState(JSON.parse(rd.result)); render(); }
+      catch(e){ alert('文件格式不对，应该是 {"c":["CN"],"p":["CN-GD"]}'); } };
+    rd.readAsText(f); };
+  inp.click();
+};
+document.getElementById('clear').onclick = () => {
+  if (!visited.size && !provs.size) return;
+  if (confirm('清空所有标记？')){ [...visited].forEach(i=>setC(i,false)); [...provs].forEach(i=>setP(i,false)); render(); }
+};
+document.getElementById('theme').onclick = () => document.body.classList.toggle('light');
+
+// ---------- PNG ----------
+document.getElementById('png').onclick = () => {
+  const cs = getComputedStyle(document.body);
+  const v = n => cs.getPropertyValue(n).trim();
+  const s = svg.cloneNode(true);
+  s.querySelector('#cam').removeAttribute('transform');
+  s.querySelectorAll('path').forEach(p => {
+    p.setAttribute('fill', p.classList.contains('on') ? v('--mark') : v('--land'));
+    p.setAttribute('stroke', v('--border')); p.setAttribute('stroke-width', '0.6');
+  });
+  if (!provMode) s.querySelector('#provinces')?.remove();
+  else s.querySelectorAll('#countries path').forEach(p=>p.setAttribute('opacity','.45'));
+  s.setAttribute('width', W); s.setAttribute('height', VB_H);
+  const img = new Image();
+  img.onload = () => {
+    const cv = document.createElement('canvas'); cv.width = W*1.5; cv.height = VB_H*1.5;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = v('--sea'); ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.drawImage(img,0,0,cv.width,cv.height);
+    const a = document.createElement('a'); a.href = cv.toDataURL('image/png');
+    a.download = 'footprint.png'; a.click();
+  };
+  img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(s))));
+};
+
+// ---------- 启动 ----------
+(async () => {
+  const h = location.hash.slice(1);
+  if (h){
+    const u = new URLSearchParams(h);
+    await applyState({ c:(u.get('c')||'').split(',').filter(Boolean),
+                       p:(u.get('p')||'').split(',').filter(Boolean) });
+  } else {
+    const raw = await store.get();
+    if (raw){ try { await applyState(JSON.parse(raw)); } catch(e){} }
+  }
+  render();
+})();
+</script>
