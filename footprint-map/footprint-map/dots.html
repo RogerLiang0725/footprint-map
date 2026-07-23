@@ -1,0 +1,354 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>足迹点阵图</title>
+<style>
+  :root{
+    --ink:#05080f;
+    --panel:#0c121d;
+    --line:#1c2637;
+    --dot:#4d6c93;
+    --dot-hi:#9fc2e8;
+    --mark:#ff7a1a;
+    --mark-hi:#ffa860;
+    --text:#dbe6f4;
+    --muted:#6b7d95;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  body.light{
+    --ink:#f2f5f9; --panel:#ffffff; --line:#dde5ee;
+    --dot:#bed3e8; --dot-hi:#6d90b8; --text:#16202e; --muted:#7a8ba0;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ink); color:var(--text);
+    font-family:ui-sans-serif,-apple-system,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1360px;margin:0 auto;padding:22px 20px 60px}
+
+  header{display:flex;align-items:flex-end;gap:22px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:18px}
+  h1{font-size:15px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;margin:0}
+  h1 span{color:var(--mark)}
+  .count{font-family:var(--mono);font-size:38px;line-height:1;letter-spacing:-.02em;margin-left:auto}
+  .count small{font-size:14px;color:var(--muted)}
+  .meter{display:flex;gap:3px;align-items:center;padding-bottom:5px}
+  .meter i{width:5px;height:5px;border-radius:50%;background:var(--dot);display:block}
+  .meter i.on{background:var(--mark)}
+
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  input,button,textarea{font:inherit;color:var(--text);background:var(--panel);
+    border:1px solid var(--line);border-radius:7px;padding:8px 11px;outline:none}
+  input:focus,textarea:focus,button:focus-visible{border-color:var(--mark)}
+  button{cursor:pointer}
+  button:hover{border-color:var(--dot-hi)}
+  .search{position:relative;flex:1;min-width:200px;max-width:320px}
+  .search input{width:100%}
+  .sugg{position:absolute;z-index:9;top:105%;left:0;right:0;background:var(--panel);
+    border:1px solid var(--line);border-radius:7px;overflow:hidden;max-height:240px;overflow-y:auto}
+  .sugg div{padding:7px 11px;cursor:pointer;font-size:14px}
+  .sugg div:hover,.sugg div.sel{background:var(--mark);color:#100a04}
+
+  .stage{border:1px solid var(--line);border-radius:12px;background:var(--panel);
+    padding:10px;position:relative;overflow:hidden}
+  svg{display:block;width:100%;height:auto;touch-action:manipulation}
+  g.c circle{fill:var(--dot);transition:fill .18s}
+  g.c.on circle{fill:var(--mark)}
+  g.c:hover circle{fill:var(--dot-hi)}
+  g.c.on:hover circle{fill:var(--mark-hi)}
+  .tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--text);
+    border:1px solid var(--line);border-radius:6px;padding:4px 9px;font-size:13px;
+    transform:translate(-50%,-160%);opacity:0;transition:opacity .12s;white-space:nowrap}
+  .tip.show{opacity:1}
+
+  .cols{display:grid;grid-template-columns:1fr 300px;gap:18px;margin-top:18px}
+  @media(max-width:820px){.cols{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px}
+  .card h2{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 10px;font-weight:600}
+  textarea{width:100%;height:96px;resize:vertical;font-family:var(--mono);font-size:12px}
+  .row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .list{display:flex;flex-wrap:wrap;gap:6px;max-height:260px;overflow-y:auto}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:13px;cursor:pointer}
+  .chip:hover{border-color:var(--mark);color:var(--mark)}
+  .chip::after{content:" ×";color:var(--muted)}
+  .note{color:var(--muted);font-size:12.5px;line-height:1.65;margin:8px 0 0}
+  .empty{color:var(--muted);font-size:13px}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>足迹<span>·</span>点阵世界</h1>
+    <div class="meter" id="meter"></div>
+    <div class="count"><span id="n">0</span><small> / <span id="tot">0</span> 个国家 · <span id="pct">0</span>%</small></div>
+  </header>
+
+  <div class="bar">
+    <div class="search">
+      <input id="q" placeholder="搜索国家 / 地区，回车标记" autocomplete="off">
+      <div class="sugg" id="sugg" hidden></div>
+    </div>
+    <button id="theme">切换亮/暗</button>
+    <button id="export">导出 JSON</button>
+    <button id="import">导入 JSON</button>
+    <button id="png">下载 PNG</button>
+    <button id="share">复制分享链接</button>
+    <button id="clear">清空</button>
+  </div>
+
+  <div class="stage">
+    <div id="svgbox"></div>
+    <div class="tip" id="tip"></div>
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h2>从照片坐标批量标记</h2>
+      <textarea id="coords" placeholder="每行一个坐标，纬度,经度&#10;34.6937,135.5023&#10;57.6889,11.9746"></textarea>
+      <div class="row">
+        <button id="runcoords">解析并标记</button>
+        <span class="note" id="coordmsg"></span>
+      </div>
+      <p class="note">配合前面聊的 osxphotos：<br>
+        <code>osxphotos query --json</code> 取出每张照片的 latitude/longitude，
+        或用 exiftool 批量导出，粘贴进来就能一次点亮所有到过的国家。</p>
+    </div>
+    <div class="card">
+      <h2>已标记 <span id="n2">0</span></h2>
+      <div class="list" id="list"><span class="empty">点击地图上的任意点即可标记</span></div>
+    </div>
+  </div>
+</div>
+
+<script src="data/dots.js"></script>
+<script>
+const DATA = window.DOTS;
+const S = 10, R = 3.5;
+const W = DATA.cols * S, H = DATA.rows * S;
+const visited = new Set();
+
+// ---------- 画点阵 ----------
+const byCountry = new Map();
+for (const [c, r, k] of DATA.dots) {
+  if (!byCountry.has(k)) byCountry.set(k, []);
+  byCountry.get(k).push([c, r]);
+}
+let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+for (const [k, pts] of byCountry) {
+  svg += `<g class="c" data-k="${k}">`;
+  for (const [c, r] of pts) svg += `<circle cx="${c*S+S/2}" cy="${r*S+S/2}" r="${R}"/>`;
+  svg += `</g>`;
+}
+svg += `</svg>`;
+document.getElementById('svgbox').innerHTML = svg;
+
+const groups = new Map();
+document.querySelectorAll('g.c').forEach(g => groups.set(+g.dataset.k, g));
+
+// ---------- 坐标查表（Miller 投影，与生成脚本一致）----------
+const latTop = 84, latBot = -58;
+const millerY = lat => 1.25 * Math.log(Math.tan(Math.PI/4 + 0.4*lat*Math.PI/180));
+const stepRad = 2*Math.PI/DATA.cols, yTop = millerY(latTop);
+const grid = new Map();
+for (const [c, r, k] of DATA.dots) grid.set(r*DATA.cols + c, k);
+
+function countryAt(lat, lon) {
+  if (lat > latTop || lat < latBot) return null;
+  const c = Math.floor((lon*Math.PI/180 + Math.PI) / stepRad);
+  const r = Math.round((yTop - millerY(lat)) / stepRad);
+  for (let d = 0; d <= 3; d++) {           // 海岸线附近向外找最近的陆地点
+    for (let dr = -d; dr <= d; dr++) for (let dc = -d; dc <= d; dc++) {
+      if (Math.max(Math.abs(dr), Math.abs(dc)) !== d) continue;
+      const cc = (c+dc+DATA.cols) % DATA.cols, rr = r+dr;
+      const k = grid.get(rr*DATA.cols + cc);
+      if (k !== undefined) return k;
+    }
+  }
+  return null;
+}
+
+// ---------- 状态 ----------
+const tot = DATA.countries.length;
+document.getElementById('tot').textContent = tot;
+const meter = document.getElementById('meter');
+meter.innerHTML = Array.from({length:20}, () => '<i></i>').join('');
+
+function toggle(k, force) {
+  const on = force === undefined ? !visited.has(k) : force;
+  on ? visited.add(k) : visited.delete(k);
+  groups.get(k)?.classList.toggle('on', on);
+}
+function render() {
+  const n = visited.size;
+  document.getElementById('n').textContent = n;
+  document.getElementById('n2').textContent = n;
+  document.getElementById('pct').textContent = (n/tot*100).toFixed(1);
+  meter.querySelectorAll('i').forEach((el,i) => el.classList.toggle('on', i < Math.round(n/tot*20)));
+  const list = document.getElementById('list');
+  if (!n) { list.innerHTML = '<span class="empty">点击地图上的任意点即可标记</span>'; }
+  else {
+    list.innerHTML = [...visited]
+      .sort((a,b) => DATA.countries[a].zh.localeCompare(DATA.countries[b].zh,'zh'))
+      .map(k => `<span class="chip" data-k="${k}">${DATA.countries[k].zh}</span>`).join('');
+  }
+  save();
+}
+
+// ---------- 交互 ----------
+const tip = document.getElementById('tip');
+const stage = document.querySelector('.stage');
+stage.addEventListener('click', e => {
+  const g = e.target.closest('g.c');
+  if (!g) return;
+  toggle(+g.dataset.k); render();
+});
+stage.addEventListener('mousemove', e => {
+  const g = e.target.closest('g.c');
+  if (!g) { tip.classList.remove('show'); return; }
+  const c = DATA.countries[+g.dataset.k];
+  tip.textContent = c.zh + ' · ' + c.en;
+  const b = stage.getBoundingClientRect();
+  tip.style.left = (e.clientX - b.left) + 'px';
+  tip.style.top  = (e.clientY - b.top) + 'px';
+  tip.classList.add('show');
+});
+stage.addEventListener('mouseleave', () => tip.classList.remove('show'));
+
+document.getElementById('list').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (chip) { toggle(+chip.dataset.k, false); render(); }
+});
+
+// 搜索
+const q = document.getElementById('q'), sugg = document.getElementById('sugg');
+let hits = [], sel = 0;
+q.addEventListener('input', () => {
+  const v = q.value.trim().toLowerCase();
+  if (!v) { sugg.hidden = true; return; }
+  hits = DATA.countries.map((c,i)=>({...c,i}))
+    .filter(c => c.zh.includes(v) || c.en.toLowerCase().includes(v) || c.iso.toLowerCase() === v)
+    .slice(0,8);
+  sel = 0;
+  sugg.innerHTML = hits.map((c,j) => `<div data-k="${c.i}" class="${j?'':'sel'}">${c.zh} <span style="color:var(--muted)">${c.en}</span></div>`).join('');
+  sugg.hidden = !hits.length;
+});
+q.addEventListener('keydown', e => {
+  if (sugg.hidden) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    sel = (sel + (e.key === 'ArrowDown' ? 1 : hits.length-1)) % hits.length;
+    [...sugg.children].forEach((d,j) => d.classList.toggle('sel', j===sel));
+  } else if (e.key === 'Enter' && hits[sel]) {
+    toggle(hits[sel].i, true); render(); q.value=''; sugg.hidden = true;
+  }
+});
+sugg.addEventListener('click', e => {
+  const d = e.target.closest('div[data-k]');
+  if (d) { toggle(+d.dataset.k, true); render(); q.value=''; sugg.hidden = true; }
+});
+
+// 坐标批量
+document.getElementById('runcoords').addEventListener('click', () => {
+  const lines = document.getElementById('coords').value.split('\n');
+  let ok = 0, miss = 0;
+  for (const line of lines) {
+    const m = line.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
+    if (!m) continue;
+    const k = countryAt(parseFloat(m[1]), parseFloat(m[2]));
+    if (k === null) { miss++; continue; }
+    if (!visited.has(k)) ok++;
+    toggle(k, true);
+  }
+  render();
+  document.getElementById('coordmsg').textContent = `新点亮 ${ok} 个国家${miss?`，${miss} 个坐标落在海上/极区`:''}`;
+});
+
+// 导入导出
+document.getElementById('export').addEventListener('click', () => {
+  const codes = [...visited].map(k => DATA.countries[k].iso);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(codes)], {type:'application/json'}));
+  a.download = 'visited.json'; a.click();
+});
+document.getElementById('import').addEventListener('click', () => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = () => {
+    const f = inp.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        apply(JSON.parse(rd.result));
+        render();
+      } catch(err) { alert('文件读不出来，需要是一个 ISO 代码数组，例如 ["CN","JP"]'); }
+    };
+    rd.readAsText(f);
+  };
+  inp.click();
+});
+
+// PNG
+document.getElementById('png').addEventListener('click', () => {
+  const s = document.querySelector('svg').cloneNode(true);
+  const cs = getComputedStyle(document.body);
+  s.querySelectorAll('g.c').forEach(g => {
+    const col = g.classList.contains('on') ? cs.getPropertyValue('--mark') : cs.getPropertyValue('--dot');
+    g.querySelectorAll('circle').forEach(c => c.setAttribute('fill', col.trim()));
+  });
+  s.setAttribute('width', W*2); s.setAttribute('height', H*2);
+  const img = new Image();
+  img.onload = () => {
+    const cv = document.createElement('canvas');
+    cv.width = W*2; cv.height = H*2;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = cs.getPropertyValue('--panel').trim();
+    ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.drawImage(img,0,0);
+    const a = document.createElement('a');
+    a.href = cv.toDataURL('image/png'); a.download = 'footprint-map.png'; a.click();
+  };
+  img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(s))));
+});
+
+document.getElementById('clear').addEventListener('click', () => {
+  if (!visited.size || confirm('清空所有标记？')) { [...visited].forEach(k => toggle(k,false)); render(); }
+});
+document.getElementById('theme').addEventListener('click', () => document.body.classList.toggle('light'));
+
+// ---------- 保存 / 分享 ----------
+const store = {
+  async get(){
+    try { const r = await window.storage.get('visited'); return r ? r.value : null; } catch(e){}
+    try { return localStorage.getItem('visited'); } catch(e){ return null; }
+  },
+  async set(v){
+    try { await window.storage.set('visited', v); return; } catch(e){}
+    try { localStorage.setItem('visited', v); } catch(e){}
+  }
+};
+const codes = () => [...visited].map(k => DATA.countries[k].iso);
+function save(){ store.set(JSON.stringify(codes())); }
+
+function apply(list){
+  const set = new Set(list);
+  [...visited].forEach(k => toggle(k, false));
+  DATA.countries.forEach((c, i) => { if (set.has(c.iso)) toggle(i, true); });
+}
+
+document.getElementById('share').addEventListener('click', async () => {
+  const url = location.origin + location.pathname + '#' + codes().join(',');
+  try { await navigator.clipboard.writeText(url); document.getElementById('share').textContent = '已复制 ✓';
+        setTimeout(() => document.getElementById('share').textContent = '复制分享链接', 1600); }
+  catch(e) { prompt('复制这个链接：', url); }
+});
+
+(async () => {
+  const hash = decodeURIComponent(location.hash.slice(1)).trim();
+  if (hash) apply(hash.split(',').map(s => s.trim().toUpperCase()));
+  else {
+    const raw = await store.get();
+    if (raw) { try { apply(JSON.parse(raw)); } catch(e){} }
+  }
+  render();
+})();
+</script>
